@@ -55,7 +55,7 @@ summary{font-size:12.5px;color:var(--text-3);cursor:pointer}
 
 <div class="wrap gate" id="gate">
 <h1>Banco di traduzione</h1>
-<p class="sub" style="margin-bottom:24px">Strumento interno ILIOS. Inserisci la password del team.<br><span style="font-size:12px">build 4</span></p>
+<p class="sub" style="margin-bottom:24px">Strumento interno ILIOS. Inserisci la password del team.<br><span style="font-size:12px">build 5</span></p>
 <input type="password" id="pw" placeholder="Password" autocomplete="current-password">
 <div class="row" style="justify-content:center;margin-top:12px"><button class="act primary" id="enter">Entra</button></div>
 <div id="gateerr"></div>
@@ -68,7 +68,7 @@ summary{font-size:12.5px;color:var(--text-3);cursor:pointer}
 <h1>Banco di traduzione</h1>
 <span class="sub">ILIOS S.r.l. · it · en · es · fr · de</span>
 </header>
-<div class="hint" style="margin-bottom:20px">Compila profilo e obiettivo, incolla il testo, premi elabora. <a href="#" id="logout" style="color:var(--accent)">esci</a> · build 4</div>
+<div class="hint" style="margin-bottom:20px">Compila profilo e obiettivo, incolla il testo, premi elabora. <a href="#" id="logout" style="color:var(--accent)">esci</a> · build 5</div>
 
 <div class="card">
 <span class="lbl">Profilo destinatario</span>
@@ -127,6 +127,7 @@ summary{font-size:12.5px;color:var(--text-3);cursor:pointer}
 <div class="out" id="outText"></div>
 <div style="margin-top:16px"><span class="lbl">Commenti</span><div class="out" id="outNotes"></div></div>
 <div class="row" style="margin-top:14px">
+<button class="act" id="cont" style="display:none">Continua la risposta</button>
 <button class="act" id="copy">Copia</button>
 <button class="act" id="toRev">Portalo nella revisione</button>
 <button class="act" id="save">Salva come versione</button>
@@ -262,21 +263,35 @@ if(res.s<200||res.s>=300){fail("Il server ha risposto HTTP "+res.s+": "+((j.erro
 cb(j)})
 .catch(function(e){clearTimeout(timer);
 fail(e.name==="AbortError"?"Nessuna risposta entro due minuti.":"Non riesco a raggiungere il server: "+e.message+"\n\nControlla che l'indirizzo del Worker nel file sia corretto.")})}
-function call(userMsg){
-setBusy(true);
-post({action:"translate",model:el("model").value||undefined,system:SYS,messages:[{role:"user",content:userMsg}]},
-function(j){setBusy(false);
-var blocks=(j.content||[]).filter(function(b){return b.type==="text"&&b.text});
-var t=blocks.map(function(b){return b.text}).join("\n").trim();
-if(!t){err("Risposta senza testo. stop_reason: "+(j.stop_reason||"assente"));return}
+var lastMsgs=null,lastRaw="";
+function budget(){
+var t=(el("src").value+" "+el("rev").value).trim();
+var w=t?t.split(/\s+/).length:0;
+return Math.min(24000,Math.max(4000,w*5+2000))}
+function render(t,truncated){
 var subj="",body=t,notes="";
 var p1=t.split("===COMMENTI===");
 notes=(p1[1]||"").trim();body=p1[0];
 if(body.indexOf("===TESTO===")>-1){var p2=body.split("===TESTO===");subj=p2[0].replace("===OGGETTO===","").trim();body=p2[1].trim()}
 else{body=body.replace("===OGGETTO===","").trim()}
-if(j.stop_reason==="max_tokens")notes=(notes?notes+"\n\n":"")+"Attenzione: risposta troncata dal limite di lunghezza.";
-show(subj,body,notes||"Il modello non ha restituito commenti.")},
+if(truncated)notes=(notes?notes+"\n\n":"")+"Risposta interrotta dal limite di lunghezza: usa \"Continua la risposta\" per farla riprendere da dove si e fermata.";
+show(subj,body,notes||"Il modello non ha restituito commenti.");
+el("cont").style.display=truncated?"inline-block":"none"}
+function run(msgs,append){
+setBusy(true);lastMsgs=msgs;
+post({action:"translate",model:el("model").value||undefined,max_tokens:budget(),system:SYS,messages:msgs},
+function(j){setBusy(false);
+var blocks=(j.content||[]).filter(function(b){return b.type==="text"&&b.text});
+var t=blocks.map(function(b){return b.text}).join("\n").trim();
+if(!t){err("Risposta senza testo. stop_reason: "+(j.stop_reason||"assente"));return}
+lastRaw=append?(lastRaw+t):t;
+render(lastRaw,j.stop_reason==="max_tokens")},
 function(m){setBusy(false);err(m)})}
+function call(userMsg){lastRaw="";run([{role:"user",content:userMsg}],false)}
+el("cont").onclick=function(){
+if(!lastMsgs)return;
+var msgs=lastMsgs.slice(0,1).concat([{role:"assistant",content:lastRaw},{role:"user",content:"Riprendi esattamente da dove ti sei fermato, senza ripetere nulla di quanto hai gia scritto e senza reintrodurre le intestazioni gia emesse."}]);
+run(msgs,true)};
 
 el("enter").onclick=function(){
 var p=el("pw").value.trim();if(!p){el("pw").focus();return}
